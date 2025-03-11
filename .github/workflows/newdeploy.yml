@@ -1,0 +1,50 @@
+name: Deploy Node.js to AWS EC2
+
+on:
+  push:
+    branches: 
+      - main
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      # 1. Checkout repository
+      - name: Checkout Code
+        uses: actions/checkout@v2
+
+      # 2. Set up Node.js environment
+      - name: Set up Node.js
+        uses: actions/setup-node@v2
+        with:
+          node-version: 16.x
+
+      # 3. Install dependencies & build app
+      - name: Install Dependencies
+        run: npm ci
+
+      - name: Build Project
+        run: npm run build --if-present
+
+      # 4. Configure AWS credentials
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v2
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: us-east-1  # Change to your AWS region
+
+      # 5. Deploy files to EC2 instance using SCP
+      - name: Deploy to EC2
+        run: |
+          echo "${{ secrets.EC2_SSH_PRIVATE_KEY }}" | tee private_key.pem > /dev/null
+          chmod 600 private_key.pem
+          scp -i private_key.pem -o StrictHostKeyChecking=no -r * ubuntu@${{ secrets.EC2_HOST }}:/home/ubuntu/app
+          ssh -i private_key.pem ubuntu@${{ secrets.EC2_HOST }} << 'EOF'
+            set -e
+            cd /home/ubuntu/app
+            npm install --production
+            pm2 restart node-app || pm2 start npm --name "node-app" -- run start
+          EOF
+          rm -f private_key.pem
